@@ -13,9 +13,12 @@ def create_pool(loop, **kw):
     __pool = yield from aiomysql.create_pool(
         host=kw.get('host', 'localhost'),
         port=kw.get('port', 3306),
-        user=kw['user'],
-        password=kw['password'],
-        db=kw['db'],
+        # user=kw['user'],
+        user='root',
+        # password=kw['password'],
+        password='201919',
+        # db=kw['db'],
+        db='test',
         charset=kw.get('charset', 'utf8'),
         autocommit=kw.get('autocommit', True),
         maxsize=kw.get('maxsize', 10),
@@ -36,7 +39,6 @@ def select(sql, args, size=None):
         else:
             result = yield from cur.fetcgall()
         yield from cur.close()
-        repr()
         logging.info('rows returned: %s' % len(result))
         return result
 
@@ -114,7 +116,7 @@ class ModelMetaClass(type):
         primaryKey = None
         for k, v in attrs.items():
             if isinstance(v, Field):
-                mappins[k] = v
+                mappings[k] = v
                 if v.primary_key:
                     if primaryKey:
                         raise RuntimeError('Douplicate primary key for field:%s' % k)
@@ -136,20 +138,12 @@ class ModelMetaClass(type):
         attrs['__primaryKey__'] = primaryKey
         attrs['__fields__'] = fields
         # 只是为了编写Model方便，放在元类里和放在Model里都可以
-        # attrs['__select__'] = "select %s ,%s from %s " % (
-        # primaryKey, ','.join(map(lambda f: '%s' % (mapping.get(f).name or f), fields)), tableName)
-        # attrs['__update__'] = "update %s set %s where %s=?" % (
-        # tableName, ', '.join(map(lambda f: '`%s`=?' % (mapping.get(f).name or f), fields)), primaryKey)
-        # attrs['__insert__'] = "insert into %s (%s,%s) values (%s);" % (
-        # tableName, primaryKey, ','.join(map(lambda f: '%s' % (mapping.get(f).name or f), fields)),
-        # create_args_string(len(fields) + 1))
-        # attrs['__delete__'] = "delete from %s where %s= ? ;" % (tableName, primaryKey)
-        attrs['__select__'] = 'select %s, %s from %s' % (primaryKey, ', '.join(escaped_fields), tableName)
-        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (\
+        attrs['__select__'] = 'select `%s`, `%s` from `%s`' % (primaryKey, ', '.join(escaped_fields), tableName)
+        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (`%s`)' % (\
         tableName, ', '.join(escaped_fields), primaryKey, create_args_string(len(escaped_fields) + 1))
-        attrs['__update__'] = 'update %s set %s where %s=?' % (\
-        tableName, ', '.join(map(lambda f: '%s = ?' % (mappings.get(f).name or f), fields)), primaryKey)
-        attrs['__delete__'] = 'delete from %s where %s =?' % (tableName, primaryKey)
+        attrs['__update__'] = 'update `%s` set `%s` where `%s`=?' % (\
+        tableName, ', '.join(map(lambda f: '`%s` = ?' % (mappings.get(f).name or f), fields)), primaryKey)
+        attrs['__delete__'] = 'delete from `%s` where `%s` =?' % (tableName, primaryKey)
         return type.__new__(cls, name, bases, attrs)
 
 
@@ -213,7 +207,7 @@ class Model(dict, metaclass=ModelMetaClass):
         rs = await select(' '.join(sql), args, 1)
         if len(rs) == 0:
             return None
-        return rs[0]['__num__']
+        return rs[0]['_num_']
 
     @classmethod
     async def find(cls, pk):
@@ -224,6 +218,7 @@ class Model(dict, metaclass=ModelMetaClass):
         return cls(**rs[0])
 
     async def save(self):
+        print('save')
         args = list(map(self.getValueOrDefault, self.__fields__))
         args.append(self.getValueOrDefault(self.__primary_key__))
         rows = await execute(self.__insert__, args)
