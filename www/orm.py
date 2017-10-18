@@ -6,19 +6,15 @@ def log(sql, args=()):
     logging.info('SQL: %s' % sql)
 
 
-@asyncio.coroutine
-def create_pool(loop, **kw):
+async def create_pool(loop, **kw):
     logging.info('create database connection pool...')
     global __pool
-    __pool = yield from aiomysql.create_pool(
+    __pool = await aiomysql.create_pool(
         host=kw.get('host', 'localhost'),
         port=kw.get('port', 3306),
-        # user=kw['user'],
         user='root',
-        # password=kw['password'],
         password='201919',
-        # db=kw['db'],
-        db='test',
+        db='phaseTest',
         charset=kw.get('charset', 'utf8'),
         autocommit=kw.get('autocommit', True),
         maxsize=kw.get('maxsize', 10),
@@ -27,32 +23,34 @@ def create_pool(loop, **kw):
     )
 
 
-@asyncio.coroutine
-def select(sql, args, size=None):
+async def select(sql, args, size=None):
     log(sql, args)
     global __pool
-    with (yield from __pool) as conn:
-        cur = yield from conn.cursor(aiomysql.DictCursor)
-        yield from cur.execute(sql.replace('?', '%s'), args or ())
-        if size:
-            result = yield from cur.fetchmany(size)
-        else:
-            result = yield from cur.fetcgall()
-        yield from cur.close()
+    async with __pool.get() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(sql.replace('?', '%s'), args or ())
+            if size:
+                result = await cur.fetchmany(size)
+            else:
+                result = await cur.fetcgall()
         logging.info('rows returned: %s' % len(result))
         return result
 
 
-@asyncio.coroutine
-def execute(sql, args):
+async def execute(sql, args, autocommit=True):
     log(sql)
-    with (yield from __pool) as conn:
+    async with __pool.get() as conn:
+        if not autocommit:
+            await conn.begin()
         try:
-            cur = yield from conn.cursor()
-            yield from cur.execute(sql.replace('?', '%s'), args)
-            affected = cur.rowcount()
-            yield from cur.close()
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(sql.replace('?', '%s'), args)
+                affected = cur.rowcount
+            if not autocommit:
+                await conn.commit()
         except BaseException as e:
+            if not autocommit:
+                await conn.rollback()
             raise
         return affected
 
@@ -66,19 +64,19 @@ def create_args_string(num):
 
 class Field(object):
 
-    def __init__(self, name, colume_type, primary_kay, default):
+    def __init__(self, name, column_type, primary_Key, default):
         self.name = name
-        self.colume_type = colume_type
-        self.primary_key = primary_kay
+        self.column_type = column_type
+        self.primary_Key = primary_Key
         self.default = default
 
     def __str__(self):
-        return '<%s, %s:%s>' % (self.__class__.__name__, self.colume_type, self.name)
+        return '<%s, %s:%s>' % (self.__class__.__name__, self.column_type, self.name)
 
 
 class StringField(Field):
-    def __init__(self, name=None, primary_key=False, default=None, ddl='varchar(100'):
-        super().__init__(name, ddl, primary_key, default)
+    def __init__(self, name=None, primary_Key=False, default=None, ddl='varchar(100'):
+        super().__init__(name, ddl, primary_Key, default)
 
 
 class BooleanField(Field):
@@ -87,13 +85,13 @@ class BooleanField(Field):
 
 
 class IntegerField(Field):
-    def __init__(self, name=None, primary_key=False, default=0):
-        super().__init__(name, 'bigint', primary_key, default)
+    def __init__(self, name=None, primary_Key=False, default=0):
+        super().__init__(name, 'bigint', primary_Key, default)
 
 
 class FloatField(Field):
-    def __init__(self, name=None, primary_key=False, default=0.0):
-        super().__init__(name, 'real', primary_key, default)
+    def __init__(self, name=None, primary_Key=False, default=0.0):
+        super().__init__(name, 'real', primary_Key, default)
 
 
 class TextField(Field):
@@ -116,8 +114,9 @@ class ModelMetaClass(type):
         primaryKey = None
         for k, v in attrs.items():
             if isinstance(v, Field):
+                logging.info('  found mapping: %s ==> %s' % (k, v))
                 mappings[k] = v
-                if v.primary_key:
+                if v.primary_Key:
                     if primaryKey:
                         raise RuntimeError('Douplicate primary key for field:%s' % k)
                     primaryKey = k
@@ -132,16 +131,16 @@ class ModelMetaClass(type):
         # 以下都是要返回的东西了，刚刚记录下的东西，如果不返回给这个类，又谈得上什么动态创建呢？
         # 到此，动态创建便比较清晰了，各个子类根据自己的字段名不同，动态创建了自己
         # 下面通过attrs返回的东西，在子类里都能通过实例拿到，如self
-        escaped_fields = list(map(lambda f : '%s' % f, fields))
+        escaped_fields = list(map(lambda f: '%s' % f, fields))
         attrs['__mappings__'] = mappings
         attrs['__table__'] = tableName
-        attrs['__primaryKey__'] = primaryKey
+        attrs['__primary_Key__'] = primaryKey
         attrs['__fields__'] = fields
         # 只是为了编写Model方便，放在元类里和放在Model里都可以
-        attrs['__select__'] = 'select `%s`, `%s` from `%s`' % (primaryKey, ', '.join(escaped_fields), tableName)
-        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (`%s`)' % (\
+        attrs['__select__'] = 'select `%s`, %s from `%s`' % (primaryKey, ', '.join(escaped_fields), tableName)
+        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (\
         tableName, ', '.join(escaped_fields), primaryKey, create_args_string(len(escaped_fields) + 1))
-        attrs['__update__'] = 'update `%s` set `%s` where `%s`=?' % (\
+        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (\
         tableName, ', '.join(map(lambda f: '`%s` = ?' % (mappings.get(f).name or f), fields)), primaryKey)
         attrs['__delete__'] = 'delete from `%s` where `%s` =?' % (tableName, primaryKey)
         return type.__new__(cls, name, bases, attrs)
@@ -170,6 +169,7 @@ class Model(dict, metaclass=ModelMetaClass):
             field = self.__mappings__[key]
             if field.default is not None:
                 value = field.default() if callable(field.default) else field.default
+                logging.debug('using default value for %s: %s' % (key, str(value)))
                 setattr(self, key, value)
         return value
 
@@ -212,7 +212,7 @@ class Model(dict, metaclass=ModelMetaClass):
     @classmethod
     async def find(cls, pk):
         'find object by primary key'
-        rs = await select('%s where `%s` = ?' % (cls.__select__, cls.__primary_key__), [pk], 1)
+        rs = await select('%s where `%s` = ?' % (cls.__select__, cls.__primary_Key__), [pk], 1)
         if len(rs) == 0:
             return None
         return cls(**rs[0])
@@ -220,20 +220,20 @@ class Model(dict, metaclass=ModelMetaClass):
     async def save(self):
         print('save')
         args = list(map(self.getValueOrDefault, self.__fields__))
-        args.append(self.getValueOrDefault(self.__primary_key__))
+        args.append(self.getValueOrDefault(self.__primary_Key__))
         rows = await execute(self.__insert__, args)
         if rows != 1:
             logging.warn('failed to insert record: affected rows: %s' % rows)
 
     async def update(self):
         args = list(map(self.getValue, self.__fields__))
-        args.append(self.getValue(self.__primary_key__))
+        args.append(self.getValue(self.__primary_Key__))
         rows = await execute(self.__update__, args)
         if rows != 1:
             logging.warn('failed to update by primary key: affected rows : %s' % rows)
 
     async def remove(self):
-        args = [self.getValue(self.__primary_key__)]
+        args = [self.getValue(self.__primary_Key__)]
         rows = await execute(self.__delete__, args)
         if rows != 1:
             logging.warn('failed to remove by primary key: affected rows : %s' % rows)
