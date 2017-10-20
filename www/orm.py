@@ -14,13 +14,20 @@ async def create_pool(loop, **kw):
         port=kw.get('port', 3306),
         user='root',
         password='201919',
-        db='phaseTest',
+        db='pythonblog',
         charset=kw.get('charset', 'utf8'),
         autocommit=kw.get('autocommit', True),
         maxsize=kw.get('maxsize', 10),
         minsize=kw.get('minsize', 1),
         loop=loop
     )
+
+
+async def destory_pool():
+    global __pool
+    if __pool is not None:
+        __pool.close()
+        await __pool.wait_closed()
 
 
 async def select(sql, args, size=None):
