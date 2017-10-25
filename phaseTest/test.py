@@ -1,3 +1,5 @@
-d = {1:'q', 2:'w', 3:'r'}
-for i, j in d.items():
-    print(i, j)
+from datetime import datetime
+import time
+print(time.time())
+dt = datetime.fromtimestamp(time.time())
+print(dt.hour)
