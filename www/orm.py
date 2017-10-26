@@ -39,7 +39,7 @@ async def select(sql, args, size=None):
             if size:
                 result = await cur.fetchmany(size)
             else:
-                result = await cur.fetcgall()
+                result = await cur.fetchall()
         logging.info('rows returned: %s' % len(result))
         return result
 

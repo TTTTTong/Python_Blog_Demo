@@ -3,8 +3,8 @@ import logging
 import os
 import time
 import asyncio
-
-from aiohttp import web, json
+import json
+from aiohttp import web
 from jinja2 import Environment, FileSystemLoader
 
 from www import orm
@@ -36,7 +36,7 @@ def init_jinja2(app, **kw):
     env = Environment(loader=FileSystemLoader(path), **options)
     # 过滤器集合
     filters = kw.get('filters', None)
-    if filters:
+    if filters is not None:
         for name, f in filters.items():
             env.filters[name] = f
 
@@ -96,25 +96,25 @@ async def response_factory(app, handler):
                 return resp
             else:
                 # 有模板信息，渲染模板
-                resp = web.Response(body=app['__template__'].get_template(template).render(**r))
+                resp = web.Response(body=app['__template__'].get_template(template).render(**r).encode())
                 resp.content_type = 'text/html;charset=utf-8'
                 return resp
 
         # 返回响应码
-        if isinstance(r, int) and (100<=r<600):
-            resp = web.Response(status=r)
+        if isinstance(r, int) and (100 <= r < 600):
+            resp = web.Response(r)
             return resp
         # 反悔了响应码和原因，如(200, 'OK')
         if isinstance(r, tuple) and len(r) == 2:
             status_code, message = r
-            if isinstance(status_code, int) and (100<=status_code<600):
-                resp = web.Response(status=r, text=str(message))
+            if isinstance(status_code, int) and (100 <= status_code < 600):
+                resp = web.Response(status_code, str(message))
                 return resp
-
+        # default:
         resp = web.Response(body=str(r).encode())
         resp.content_type = 'text/plain;charset=utf-8'
         return resp
-
+    return response
 
 # async def auth_factory(app, handler):
 #     async def auth(request):
@@ -138,7 +138,8 @@ async def data_factory(app, handler):
 
 async def init(loop):
     await orm.create_pool(loop=loop)
-    app = web.Application(loop=loop, middlewares=datetime_filter)
+    app = web.Application(loop=loop, middlewares=[logger_factory, response_factory])
+    init_jinja2(app, filters=dict(datetime=datetime_filter))
     add_routes(app, 'handlers')
     add_static(app)
     srv = await loop.create_server(app.make_handler(), '127.0.0.1', 9000)

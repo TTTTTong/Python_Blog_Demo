@@ -3,7 +3,8 @@ import functools
 import inspect
 import logging
 from urllib import parse
-from aiohttp import web, asyncio
+from aiohttp import web
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 # def get(path):
@@ -35,7 +36,7 @@ def handler_decorator(path, *, method):
 
 
 get = functools.partial(handler_decorator, method='GET')
-get = functools.partial(handler_decorator, method='POST')
+post = functools.partial(handler_decorator, method='POST')
 
 # 使用inspect模块检查视图函数的参数
 # inspect.Parameter.kind 类型
@@ -108,9 +109,9 @@ class RequestHandler(object):
         self._func = fn
         self. _required_kw_args = get_required_kw_args(fn)
         self._named_kw_args = get_named_kw_args(fn)
-        self._has_request_arg = has_request_args(fn)
+        self._has_request_args = has_request_args(fn)
         self._has_named_kw_args = has_named_kw_args(fn)
-        self._has_var_kw_arg = has_var_kw_args(fn)
+        self._has_var_kw_args = has_var_kw_args(fn)
 
     # 定义kw用于保存参数
     # 判断视图函数是否存在关键词参数，如果存在根据POST或者GET方法将request请求内容保存到kw
@@ -118,7 +119,7 @@ class RequestHandler(object):
     async def __call__(self, request):
         # 定义kw用于保存request中的参数
         kw = None
-        if self._has_named_kw_args or self._has_var_kw_arg:
+        if self._has_named_kw_args or self._has_var_kw_args:
             if request.method == 'POST':
                 if request.content_type == None:
                     return web.HTTPBadRequest(text='missing content_type')
@@ -128,53 +129,52 @@ class RequestHandler(object):
                     if not isinstance(params, dict):
                         return web.HTTPBadRequest(text='JSON body must be object.')
                     kw = params
-
                 elif ct.startwith('application/x-www-form-urlencoded') or ct.startswith('multipart/form-data'):
                     params = await request.post()
                     kw = dict(**params)
                 else:
                     return web.HTTPBadRequest(text='Unsupported Content-Type: %s' % request.content_type)
-                if request.method == 'GET':
-                    qs = request.query_string  # 返回URL查询语句?后的键值。string形式。
-                    if qs:
-                        kw = dict()
-                        for k, v in parse.parse_qs(qs, True).items():  # True表示不忽略空格。
-                            kw[k] = v[0]
-                if kw is None:
+            if request.method == 'GET':
+                qs = request.query_string  # 返回URL查询语句?后的键值。string形式。
+                if qs:
+                    kw = dict()
+                    for k, v in parse.parse_qs(qs, True).items():  # True表示不忽略空格。
+                        kw[k] = v[0]
 
-                    # request.match_info返回dict对象。可变路由中的可变字段{variable}为参数名，传入request请求的path为值
-                    # 若存在可变路由：/a/{name}/c，可匹配path为：/a/jack/c的request
-                    # 则request.match_info返回{name = jack}
-                    kw = dict(**request.match_info)
-                else:
-                    if self._has_named_kw_arg and (not self._has_var_kw_arg):
-                        copy = dict()
-                        # 只保留命名关键词参数
-                        for name in self._named_kw_args:
-                            if name in kw:
-                                copy[name] = kw[name]
-                        kw = copy
-                    # 将request.match_info中的参数传入kw
-                    for k, v in request.match_info.items():
-                        # 检查kw中的参数是否和match_info中的重复
-                        if k in kw:
-                            logging.warn('Duplicate arg name in named arg and kw args: %s' % k)
-                        kw[k] = v
-                if self._has_request_arg:
-                    kw['request'] = request
-                if self._required_kw_args:
-                    for name in self._required_kw_args:
-                        if not name in kw:
-                            return web.HTTPBadRequest('Missing argument: %s' % name)
-                # 至此，kw为视图函数fn真正能调用的参数
-                # request请求中的参数，终于传递给了视图函数
-                logging.info('call with args: %s' % str(kw))
-                from www.apis import APIError
-                try:
-                    r = await self._func(**kw)
-                    return r
-                except APIError as e:
-                    return dict(error=e.error, data=e.data, message=e.message)
+        if kw is None:
+            # request.match_info返回dict对象。可变路由中的可变字段{variable}为参数名，传入request请求的path为值
+            # 若存在可变路由：/a/{name}/c，可匹配path为：/a/jack/c的request
+            # 则request.match_info返回{name = jack}
+            kw = dict(**request.match_info)
+        else:
+            if self._named_kw_args and (not self._has_var_kw_args):
+                copy = dict()
+                # 只保留命名关键词参数
+                for name in self._named_kw_args:
+                    if name in kw:
+                        copy[name] = kw[name]
+                kw = copy
+            # 将request.match_info中的参数传入kw
+            for k, v in request.match_info.items():
+                # 检查kw中的参数是否和match_info中的重复
+                if k in kw:
+                    logging.warning('Duplicate arg name in named arg and kw args: %s' % k)
+                kw[k] = v
+        if self._has_request_args:
+            kw['request'] = request
+        if self._required_kw_args:
+            for name in self._required_kw_args:
+                if not name in kw:
+                    return web.HTTPBadRequest('Missing argument: %s' % name)
+        # 至此，kw为视图函数fn真正能调用的参数
+        # request请求中的参数，终于传递给了视图函数
+        logging.info('call with args: %s' % str(kw))
+        from www.apis import APIError
+        try:
+            r = await self._func(**kw)
+            return r
+        except APIError as e:
+            return dict(error=e.error, data=e.data, message=e.message)
 
 
 # 编写一个add_route函数，用来注册一个视图函数
@@ -200,11 +200,11 @@ def add_routes(app, module_name):
     if n == -1:
         # __import__ 作用同import语句，但__import__是一个函数，并且只接收字符串作为参数
         # __import__('os',globals(),locals(),['path','pip'], 0) ,等价于from os import path, pip
-        mod = __import__(module_name, globals(), locals, [], 0)
+        mod = __import__(module_name, globals(), locals())
     else:
-        name = module_name[(n + 1):]
+        name = module_name[n+1:]
         # 只获取最终导入的模块，为后续调用dir()
-        mod = getattr(__import__(module_name[:n], globals(), locals, [name], 0), name)
+        mod = getattr(__import__(module_name[:n], globals(), locals(), [name]), name)
     # dir()迭代出mod模块中所有的类，实例及函数等对象,str形式
     for attr in dir(mod):
         if attr.startswith('_'):

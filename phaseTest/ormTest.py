@@ -34,7 +34,7 @@ async def test_find(loop):
     await connecDB(loop)
     user = await User.find('21')
     print('user:%s' % user)
-    # await destoryDB()
+    await destoryDB()
 
 
 async def test_save(loop):
@@ -43,7 +43,7 @@ async def test_save(loop):
     if user is None:
         user = User(id=123, name='orm')
         await user.save()
-    # await destoryDB()
+    await destoryDB()
 
 
 async def test_update(loop):
@@ -66,10 +66,10 @@ async def test_remove(loop):
 
 loop = asyncio.get_event_loop()
 
-# loop.run_until_complete(test_findAll(loop))
+loop.run_until_complete(test_findAll(loop))
 # loop.run_until_complete(test_findNumber(loop))
 # loop.run_until_complete(test_find(loop))
-loop.run_until_complete(test_save(loop))
+# loop.run_until_complete(test_save(loop))
 # loop.run_until_complete(test_update(loop))
 # loop.run_until_complete(test_remove(loop))
 loop.close()
