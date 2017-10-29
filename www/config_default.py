@@ -7,7 +7,7 @@ configs = {
     'password': '201919',
     'db': 'pythonblog'
     },
-    'session':{
-        'secret': 'Awesome'
+    'session': {
+        'secret': 'ansession'
     }
 }

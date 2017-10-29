@@ -6,11 +6,9 @@ import asyncio
 import json
 from aiohttp import web
 from jinja2 import Environment, FileSystemLoader
-
 from www import orm
 from www.coroweb import add_routes, add_static
-
-logging.basicConfig(level = logging.INFO)
+logging.basicConfig(level=logging.INFO)
 
 
 def init_jinja2(app, **kw):

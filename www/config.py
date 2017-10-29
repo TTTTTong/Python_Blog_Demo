@@ -41,8 +41,8 @@ def toDict(d):
 
 try:
     from www import config_override
-    configs = merge(config_default, config_override)
+    configs = merge(config_default.configs, config_override.configs)
 except ImportError:
-    pass
+    raise ImportError('file not found')
 
 configs = toDict(configs)
